@@ -2,24 +2,22 @@
 #include <HTTPClient.h>
 #include <TFT_eSPI.h>
 
-const char* ssid = "123";
-const char* password = "Amirabbas";
-
-const char* server = "http://192.168.1.105:5000/frame";
+const char* ssid = "YOUR_WIFI_SSID";
+const char* password = "YOUR_WIFI_PASSWORD";
+const char* server = "http://YOUR_PC_IP:5000/frame";
 
 #define TFT_W 160
 #define TFT_H 128
 #define FRAME_SIZE (TFT_W * TFT_H * 2)
 
 TFT_eSPI tft = TFT_eSPI();
-
 uint16_t frameBuffer[TFT_W * TFT_H];
 
 void showMessage(const char *msg, uint16_t color = TFT_WHITE)
 {
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(color);
-  tft.setCursor(0,0);
+  tft.setCursor(0, 0);
   tft.println(msg);
 }
 
@@ -34,9 +32,9 @@ void setup()
   showMessage("Connecting WiFi...");
 
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid,password);
+  WiFi.begin(ssid, password);
 
-  while(WiFi.status()!=WL_CONNECTED)
+  while (WiFi.status() != WL_CONNECTED)
   {
     Serial.print(".");
     delay(500);
@@ -51,34 +49,31 @@ void setup()
 
 void loop()
 {
-  if(WiFi.status()!=WL_CONNECTED)
+  if (WiFi.status() != WL_CONNECTED)
   {
     showMessage("Reconnect...", TFT_YELLOW);
-
     WiFi.disconnect();
-    WiFi.begin(ssid,password);
-
+    WiFi.begin(ssid, password);
     delay(1000);
     return;
   }
 
   HTTPClient http;
-
   http.setTimeout(3000);
 
-  if(!http.begin(server))
+  if (!http.begin(server))
   {
     showMessage("HTTP Begin Err", TFT_RED);
     delay(1000);
     return;
   }
 
-  int code=http.GET();
+  int code = http.GET();
 
   Serial.print("HTTP=");
   Serial.println(code);
 
-  if(code!=HTTP_CODE_OK)
+  if (code != HTTP_CODE_OK)
   {
     showMessage("HTTP ERROR", TFT_RED);
     http.end();
@@ -86,11 +81,9 @@ void loop()
     return;
   }
 
-  int len=http.getSize();
-  Serial.print("Size=");
-  Serial.println(len);
+  int len = http.getSize();
 
-  if(len!=FRAME_SIZE)
+  if (len != FRAME_SIZE)
   {
     showMessage("Wrong Size", TFT_RED);
     http.end();
@@ -98,32 +91,28 @@ void loop()
     return;
   }
 
-  WiFiClient *stream=http.getStreamPtr();
+  WiFiClient* stream = http.getStreamPtr();
+  uint8_t* ptr = reinterpret_cast<uint8_t*>(frameBuffer);
+  int received = 0;
+  unsigned long start = millis();
 
-  uint8_t *ptr=(uint8_t*)frameBuffer;
-
-  int received=0;
-
-  unsigned long start=millis();
-
-  while(received<FRAME_SIZE)
+  while (received < FRAME_SIZE)
   {
-    if(millis()-start>3000)
+    if (millis() - start > 3000)
     {
       Serial.println("Timeout");
       break;
     }
 
-    int avail=stream->available();
+    int available = stream->available();
 
-    if(avail)
+    if (available)
     {
-      int r=stream->read(ptr+received,min(avail,FRAME_SIZE-received));
+      int toRead = min(available, FRAME_SIZE - received);
+      int count = stream->read(ptr + received, toRead);
 
-      if(r>0)
-      {
-        received+=r;
-      }
+      if (count > 0)
+        received += count;
     }
 
     delay(1);
@@ -131,17 +120,14 @@ void loop()
 
   http.end();
 
-  if(received!=FRAME_SIZE)
+  if (received != FRAME_SIZE)
   {
     Serial.print("Received=");
     Serial.println(received);
-
     showMessage("Frame Error", TFT_RED);
-
     delay(300);
-
     return;
   }
 
-  tft.pushImage(0,0,TFT_W,TFT_H,frameBuffer);
+  tft.pushImage(0, 0, TFT_W, TFT_H, frameBuffer);
 }
