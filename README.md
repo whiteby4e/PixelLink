@@ -4,7 +4,7 @@
 
 **Mirror your PC screen onto a small TFT over Wi-Fi.**
 
-PixelLink captures a desktop frame on a computer, converts it to RGB565, and sends it to a microcontroller that displays it on a TFT screen.
+PixelLink captures desktop frames, converts them to RGB565, and streams them to a microcontroller receiver for display on a TFT.
 
 ![Python](https://img.shields.io/badge/Python-3.x-3776AB?logo=python&logoColor=white)
 ![Hardware](https://img.shields.io/badge/Hardware-ESP32%20%7C%20ESP8266%20%7C%20Pico%20W-blue)
@@ -26,7 +26,7 @@ Python screen capture
 Resize + RGB565 conversion
     │
     ▼
-Wi-Fi network
+Wi-Fi / TCP (PLNK frames)
     │
     ▼
 Microcontroller receiver
@@ -35,18 +35,18 @@ Microcontroller receiver
 ST7735 TFT display
 ```
 
-The main PC implementation uses Flask, MSS, and Pillow. The repository also contains receiver examples for several Wi-Fi-capable boards.
+The PC sender opens a TCP connection to the microcontroller. Each frame contains a 16-byte `PLNK` header followed by RGB565 pixel data.
 
 ## ✨ Features
 
-- Capture the desktop on a PC.
+- Capture the PC desktop with MSS.
 - Resize frames for a small TFT display.
-- Convert RGB888 pixels to RGB565.
-- Serve frames over HTTP.
-- Configure frame dimensions, monitor selection, and maximum capture rate with environment variables.
-- Includes firmware examples for ESP32, ESP8266, Pico W, and Arduino WiFiNINA.
+- Convert RGB888 pixels to big-endian RGB565.
+- Stream frames over TCP with automatic reconnect.
+- Configure target resolution, monitor, and frame rate.
+- Includes receiver examples for ESP32, ESP8266, Pico W, and Arduino WiFiNINA.
 
-## ⚡ Quick start: PC server
+## ⚡ Quick start
 
 ### 1. Install dependencies
 
@@ -56,26 +56,9 @@ cd PixelLink
 python -m pip install -r python/requirements.txt
 ```
 
-### 2. Start the server
+### 2. Upload receiver firmware
 
-```bash
-python server.py
-```
-
-The server listens on port **5000** and provides:
-
-- `/frame` — raw RGB565 frame data.
-- `/health` — basic server status and frame configuration.
-
-The frame endpoint returns width, height, and pixel-format metadata in HTTP response headers.
-
-### 3. Configure the receiver
-
-Open the firmware example for your board and set the Wi-Fi network name, password, and PC server address as required by that sketch.
-
-Make sure the PC and microcontroller are connected to the same local network and that the PC firewall allows the connection.
-
-## 📟 Supported receiver examples
+Choose the example for your board:
 
 | Board family | Firmware |
 |---|---|
@@ -84,36 +67,76 @@ Make sure the PC and microcontroller are connected to the same local network and
 | Raspberry Pi Pico W | [Pico W receiver](firmware/pico_w/PixelLink_Pico_W.ino) |
 | Arduino WiFiNINA | [WiFiNINA receiver](firmware/arduino_wifi_nina/PixelLink_Arduino_WiFiNINA.ino) |
 
-The examples use an ST7735 128 × 160 display. Check [wiring notes](docs/WIRING.md) and configure the display library for your board.
+Set the Wi-Fi name and password in the sketch, configure the ST7735 pins, and upload it. Open the Serial Monitor at 115200 baud to find the receiver's IP address.
 
-## ⚙️ Server configuration
+### 3. Start the PC sender
 
-The Python server reads these environment variables:
+Replace the example address with the IP printed by your receiver:
 
-| Variable | Default | Purpose |
+```bash
+python sender.py --host 192.168.1.50
+```
+
+The sender defaults to 128 × 160 at 15 FPS and TCP port 5000. Keep the PC and receiver on the same local network.
+
+To change the monitor or frame rate:
+
+```bash
+python sender.py --host 192.168.1.50 --monitor 1 --fps 10
+```
+
+Press **Ctrl+C** to stop.
+
+## ⚙️ Sender options
+
+| Option | Default | Purpose |
 |---|---:|---|
-| `PIXELLINK_WIDTH` | `160` | Output frame width |
-| `PIXELLINK_HEIGHT` | `128` | Output frame height |
-| `PIXELLINK_MONITOR` | `1` | Monitor index |
-| `PIXELLINK_MAX_FPS` | `15` | Maximum capture rate |
+| `--host` | Required | Receiver IP address |
+| `--port` | `5000` | Receiver TCP port |
+| `--width` | `128` | Frame width |
+| `--height` | `160` | Frame height |
+| `--monitor` | `1` | MSS monitor index |
+| `--fps` | `15` | Target frame rate |
 
-Set these before launching `server.py` if you need a different frame size or capture rate.
+The dimensions must match the receiver firmware's configured TFT dimensions.
 
-## 📡 Protocol and wiring
+## 📡 Frame protocol
 
-- [TFT wiring guide](docs/WIRING.md)
-- [Frame protocol notes](docs/PROTOCOL.md)
+The TCP receiver expects a 16-byte network-order header:
 
-The HTTP `/frame` endpoint serves raw RGB565 bytes. The protocol document describes a separate 16-byte TCP frame header; do not assume that header is present in the current HTTP response.
+| Offset | Size | Field |
+|---:|---:|---|
+| 0 | 4 | Magic bytes: `PLNK` |
+| 4 | 2 | Width |
+| 6 | 2 | Height |
+| 8 | 4 | Payload length |
+| 12 | 4 | Frame ID |
+
+The payload contains exactly `width × height × 2` bytes of row-major RGB565 data, most-significant byte first. The sender uses `sendall()`; the receiver reads the complete header and payload because TCP may split data across packets.
+
+See [protocol notes](docs/PROTOCOL.md) and [TFT wiring](docs/WIRING.md).
+
+## 🧰 Optional HTTP preview endpoint
+
+The repository also contains `server.py`, a small Flask endpoint that exposes a captured RGB565 frame at `/frame` and status at `/health`. This is a separate HTTP utility; it is **not** the TCP sender used by the included receiver firmware.
+
+Run it with:
+
+```bash
+python server.py
+```
+
+It listens on port 5000 on the PC. If you use it, remember that it is a development endpoint without authentication or encryption.
 
 ## 🔐 Network note
 
-The development server binds to `0.0.0.0` so devices on the local network can connect. It does not provide authentication or encryption. Use it only on a trusted network and do not expose the port directly to the public internet.
+The receiver and optional HTTP endpoint are intended for trusted local networks. Neither provides transport encryption or authentication. Do not expose them directly to the public internet.
 
 ## 📁 Project layout
 
 ```text
 PixelLink/
+├── sender.py
 ├── server.py
 ├── PixelLink.ino
 ├── firmware/
