@@ -8,8 +8,9 @@ from PIL import Image
 
 app = Flask(__name__)
 
-WIDTH = int(os.getenv("PIXELLINK_WIDTH", "160"))
-HEIGHT = int(os.getenv("PIXELLINK_HEIGHT", "128"))
+# Match the default dimensions used by the included TFT receiver firmware.
+WIDTH = int(os.getenv("PIXELLINK_WIDTH", "128"))
+HEIGHT = int(os.getenv("PIXELLINK_HEIGHT", "160"))
 MONITOR_INDEX = max(1, int(os.getenv("PIXELLINK_MONITOR", "1")))
 MAX_FPS = max(1, int(os.getenv("PIXELLINK_MAX_FPS", "15")))
 
